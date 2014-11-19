@@ -21,6 +21,7 @@
     "background": {
         "scripts": [
             "lib/jquery.min.js",
+            "lib/async.min.js",
             "lib/trello/client.js", 
             "lib/trello/key.js", 
             "lib/trello/services.js", 

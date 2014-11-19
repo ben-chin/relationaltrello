@@ -3,3 +3,12 @@
 	color: white;
 	background: linear-gradient(to bottom,#4FD77A 0,#34BA69 100%);
 }
+
+.badge-icon.icon-subboard {
+	background-image: url('http://iconmonstr.com/g/gd/makefg.php?i=s2/default/iconmonstr-drop-15-icon.png&r=255&g=151&b=59');
+	background-size: cover;
+}
+
+.badge-icon.icon-subboard:before {
+	content: '';
+}

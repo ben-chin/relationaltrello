@@ -25,6 +25,8 @@
             "lib/trello/client.js", 
             "lib/trello/key.js", 
             "lib/trello/services.js", 
+            "client/storage.js",
+            "client/requestsnooper.js",
             "client/bg.js"
         ],
         "persistent": true

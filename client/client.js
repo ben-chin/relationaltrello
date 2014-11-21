@@ -14,10 +14,10 @@ var renderAddButton = function (cardId) {
 };
 
 
-// var renderGotoButton = function (boardId) {
-// 	var tpl = '<a href="#" class="button-link goto-subboard" data-board-id="' + boardId + '" title="Create a child board from a checklist.">  Go To SubBoard </a>';
-// 	$('.window .window-sidebar .window-module:not(.other-actions) .button-link').last().after(tpl);
-// };
+var renderGotoButton = function (link) {
+	var tpl = '<a href="' + link + '" class="button-link goto-subboard" title="Create a child board from a checklist.">  Go To SubBoard </a>';
+	$('.window .window-sidebar .window-module:not(.other-actions) .button-link').last().after(tpl);
+};
 
 // Send a message to the background script to 
 // create a checklist for this card id and 
@@ -67,12 +67,13 @@ var requestSubboardChecklists = function (boardlink) {
 // render the subboard button with the given card id
 chrome.runtime.onMessage.addListener(
   function(message, sender, sendResponse) {
+  	console.log(message);
     if (message.name == 'cardOpened') {
     	var cardId = message.data.cardId;
     	var boardId = message.data.boardId;
 
     	if (message.data.hasSubboard) {
-    		// renderGotoButton(boardId);
+    		renderGotoButton(message.data.link);
     	} else {
     		renderAddButton(cardId);
     	}

@@ -20,8 +20,22 @@ Storage = (function () {
 	};
 
 	Storage.prototype.setMap = function (a, b) {
-		store.set({ a: b });
-		store.set({ b: a });
+		var m_1 = {}; 
+		var	m_2 = {};
+
+		m_1[a] = b;
+		m_2[b] = a;
+
+		store.set(m_1);
+		store.set(m_2);
+	};
+
+	Storage.prototype.deleteMap = function (a) {
+		this.get(a)
+			.then(function (mapping) {
+				store.remove(mapping[a]);
+				store.remove(a);
+			});
 	};
 
 	// Assumes only one key

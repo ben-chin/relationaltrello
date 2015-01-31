@@ -8,8 +8,12 @@ var extractBoardShortlink = function(url) {
 
 // Use the card id to render a button in the DOM 
 // that will create a board
-var renderAddButton = function (cardId) {
-	var tpl = '<a href="#" class="button-link create-subboard" data-card-id="' + cardId + '" title="Create a child board from a checklist.">  SubBoard It </a>';
+var renderAddButton = function (cardId, boardId) {
+	var tpl = '<a href="#" class="button-link create-subboard" data-card-id="' 
+			+ cardId 
+			+ '" data-board-id="'
+			+ boardId
+			+ '" title="Create a child board from a checklist.">  SubBoard It </a>';
 	$('.window .window-sidebar .window-module:not(.other-actions) .button-link').last().after(tpl);
 };
 
@@ -22,10 +26,11 @@ var renderGotoButton = function (link) {
 // Send a message to the background script to 
 // create a checklist for this card id and 
 // link it to a child board
-var requestSubboard = function (cardId, cardTitle) {
+var requestSubboard = function (boardId, cardId, cardTitle) {
 	var message = {
 		name: 'requestSubboard',
 		data: {
+			boardId: boardId,
 			cardId: cardId,
 			cardTitle: cardTitle
 		}
@@ -75,7 +80,7 @@ chrome.runtime.onMessage.addListener(
     	if (message.data.hasSubboard) {
     		renderGotoButton(message.data.link);
     	} else {
-    		renderAddButton(cardId);
+    		renderAddButton(cardId, boardId);
     	}
     }
   });
@@ -89,7 +94,8 @@ $(document).ready(function () {
 	$('.window')
 		.on('click', '.button-link.create-subboard', function (e) {
 			requestSubboard(
-				$(this).data('cardId'), 
+				$(this).data('boardId'),
+				$(this).data('cardId'),
 				$('.window .window-title .window-title-text').text()
 			);
 		})

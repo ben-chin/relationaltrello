@@ -1,7 +1,7 @@
-// App = new App();
 Storage = new Storage(chrome);
 TrelloClient = new TrelloClient();
 
+// Config stuffs
 var urls = [
 	"*://trello.com/1/boards/*/cards/*",
 	"*://trello.com/1/cards/*",
@@ -33,6 +33,7 @@ RequestSnooper.addEventTrigger('checkItemDeleted', patterns.checkItem, 'DELETE')
 
 RequestSnooper.addEventTrigger('cardCreated', patterns.cards, 'POST');
 RequestSnooper.addEventTrigger('cardUpdated', patterns.card, 'PUT');
+// Is actually inside PUT (archived)
 RequestSnooper.addEventTrigger('cardDeleted', patterns.card, 'DELETE');
 
 
@@ -50,15 +51,11 @@ window.addEventListener('cardOpened', function (e) {
 
 	Storage.get(cardId)
 		.then(function (card) {
-			console.log(card);
-			if (card[cardId].checklist) {
-				console.log('hey');
-				return Storage.get(card[cardId].checklist);
-			}
+			return Storage.get(getValue(card));
 		})
 		.then(function (checklist) {
 			console.log(checklist);
-			return TrelloClient.getBoardUrl(getFirstVal(checklist).subboard);
+			return TrelloClient.getBoardUrl(getValue(checklist).subboard);
 		})
 		.then(function (details) {
 			sendMsg({
@@ -82,6 +79,7 @@ window.addEventListener('cardOpened', function (e) {
 		});
 });
 
+
 // If checklist is mapped to a subboard
 // create new corresponding card on first list of board
 // store mapping card <-> checkitem
@@ -91,7 +89,8 @@ window.addEventListener('checkItemCreated', function (e) {
 
 	Storage.get(checklistId)
 		.then(function (checklist) {
-			return TrelloClient.addSubcard(checklist.board, checklistId);
+			var subboardId = getValue(checklist);
+			return TrelloClient.addSubcard(subboardId, checklistId);
 		})
 		.then(function (newSubcard) {
 			TrelloClient.getLastCheckItem(checklistId)
@@ -101,51 +100,81 @@ window.addEventListener('checkItemCreated', function (e) {
 		});
 });
 
+
+// if checkitem is mapped to a subcard
+// update subcard
+//   - name
+//   - list (if item is marked done, or if was done and marked undone)
 window.addEventListener('checkItemUpdated', function (e) {
 	var cardId = e.detail[0];
 	var checklistId = e.detail[1];
 	var checkItemId = e.detail[2];
 
-	// if checkitem is mapped to a subcard
-	// update subcard
-	//   - name
-	//   - list (if item is marked done, or if was done and marked undone)
+	Storage.get(checkItemId)
+		.then(function (checkItem) {
+			TrelloClient.getCheckItem(checklistId, checkItemId)
+				.then(function (details) {
+					TrelloClient.updateSubcard(getValue(checkItem), details);
+				});
+		});
+
 });
 
+
+// if checkitem is mapped to a subcard
+// delete subcard
+// delete mapping
 window.addEventListener('checkItemDeleted', function (e) {
 	var cardId = e.detail[0];
 	var checklistId = e.detail[1];
 	var checkItemId = e.detail[2];
 
-	// if checkitem is mapped to a subcard
-	// delete subcard
-	// delete mapping
+	Storage.get(checkItemId)
+		.then(function (checkItem) {
+			return TrelloClient.deleteSubcard(getValue(checkItem));
+		})
+		.then(function () {
+			Storage.deleteMap(checkItemId);
+		});
 });
 
 window.addEventListener('cardCreated', function (e) {
 	// No helpful info from request yet?
 	// Blocking, redirect response into data and send with event.detail?
 	// Then can use trello API to actually create the card
+	console.debug('cardCreated', e);
 });
 
+// if card is mapped to a checkitem
+// update checkitem
+//   - name
+//   - done (if card's list is the last list)
+//   - undone (if card's list is not the last list)
+//   - CLOSED? (different to DELETE? how to handle mapping??? need it for DELETE)
+//   - REOPENED? (reinsert mapping)
 window.addEventListener('cardUpdated', function (e) {
 	var cardId = e.detail[0];
 
-	// if card is mapped to a checkitem
-	// update checkitem
-	//   - name
-	//   - done (if card's list is the last list)
-	//   - undone (if card's list is not the last list)
-	//   - CLOSED? (different to DELETE? how to handle mapping??? need it for DELETE)
-	//   - REOPENED? (reinsert mapping)
 });
 
+// if card is mapped to a checkitem
+// delete checkitem
+// delete mapping
 window.addEventListener('cardDeleted', function (e) {
 	var cardId = e.detail[0];
 
-	// if card is mapped to a checkitem
-	// delete checkitem
-	// delete mapping
+	Storage.get(cardId)
+		.then(function (mapping) {
+			TrelloClient.getCard(cardId)
+				.then(function (card) {
+					console.debug('cardDeleted', card);
+					// Assuming one linked checklist per card!
+					return TrelloClient.deleteCheckItem(card.idChecklists[0], getValue(mapping));
+				})
+				.then(function () {
+					Storage.deleteMap(cardId);
+				})
+		});
 });
 
 
@@ -156,6 +185,7 @@ chrome.runtime.onMessage.addListener(
 
   	// Content script has requested a new subboard
     if (message.name == 'requestSubboard') {
+    	var boardId = message.data.boardId;
     	var cardId = message.data.cardId;
     	var cardTitle = message.data.cardTitle;
     	
@@ -163,26 +193,24 @@ chrome.runtime.onMessage.addListener(
     		.then(function (checklist) {
     			TrelloClient.createSubboard(cardTitle)
     				.then(function (subboard) {
-
-    					var m_1 = {};
-    					m_1[checklist.id] = {
-							subboard: subboard.id,
-							parentcard: cardId
-						};
-
-						var m_2 = {};
-    					m_2[cardId] = {
-    						checklist: checklist.id
-						};
-
-						var m_3 = {};
-						m_3[subboard.id] = {
-    						checklist: checklist.id
-						};
-
-    					Storage.set(m_1);
-    					Storage.set(m_2);
-    					Storage.set(m_2);
+    					Storage.setMap(checklist.id, subboard.id);
+    					
+    					TrelloClient.getBoardMembers(boardId)
+    						.then(function (members) {
+    							async.each(members, 
+    								function (member, err) {
+    									console.debug('inviting member', member);
+    									TrelloClient.addMemberToBoard(subboard.id, member.idMember, member.memberType)
+    										.then(function () {
+    											err(null);
+    										});
+    								},
+    								function err (error) {
+    									if (error) {
+    										console.debug('Error inviting member to board.');
+    									}
+    								});
+    						});
     				});
     		});
     }
@@ -209,7 +237,7 @@ var sendMsg = function (message) {
 		});
 };
 
-var getFirstVal = function (obj) {
+var getValue = function (obj) {
 	return obj[Object.keys(obj)[0]];
 };
 
@@ -227,85 +255,85 @@ var getFirstVal = function (obj) {
 
 // Extract board id and card id from the url of 
 // the request sent from opening a card
-var extractCardDetails = function (url) {
-	var pattern = /https:\/\/trello.com\/1\/boards\/([a-zA-Z0-9]*)\/cards\/([a-zA-Z0-9]*)/gm;
-	var matches = pattern.exec(url);
-	return {
-		boardId: matches[1],
-		cardId: matches[2]
-	};
-};
+// var extractCardDetails = function (url) {
+// 	var pattern = /https:\/\/trello.com\/1\/boards\/([a-zA-Z0-9]*)\/cards\/([a-zA-Z0-9]*)/gm;
+// 	var matches = pattern.exec(url);
+// 	return {
+// 		boardId: matches[1],
+// 		cardId: matches[2]
+// 	};
+// };
 
-var extractCheckItemCreatedDetails = function (url) {
-	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)\/checklist\/([a-zA-Z0-9]*)\/checkItem/gm;
-	var matches = pattern.exec(url);
-	return {
-		cardId: matches[1],
-		checklistId: matches[2]
-	};
-};
+// var extractCheckItemCreatedDetails = function (url) {
+// 	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)\/checklist\/([a-zA-Z0-9]*)\/checkItem/gm;
+// 	var matches = pattern.exec(url);
+// 	return {
+// 		cardId: matches[1],
+// 		checklistId: matches[2]
+// 	};
+// };
 
-var extractCheckItemUpdatedDetails = function (url) {
-	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)\/checklist\/([a-zA-Z0-9]*)\/checkItem\/([a-zA-Z0-9]*)/gm;
-	var matches = pattern.exec(url);
-	return {
-		cardId: matches[1],
-		checklistId: matches[2],
-		checkItemId: matches[3]
-	};
-};
+// var extractCheckItemUpdatedDetails = function (url) {
+// 	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)\/checklist\/([a-zA-Z0-9]*)\/checkItem\/([a-zA-Z0-9]*)/gm;
+// 	var matches = pattern.exec(url);
+// 	return {
+// 		cardId: matches[1],
+// 		checklistId: matches[2],
+// 		checkItemId: matches[3]
+// 	};
+// };
 
-var extractCheckItemDeletedDetails = function (url) {
-	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)\/checklist\/([a-zA-Z0-9]*)\/checkItem\/([a-zA-Z0-9]*)/gm;
-	var matches = pattern.exec(url);
-	return {
-		cardId: matches[1],
-		checklistId: matches[2],
-		checkItemId: matches[3]
-	};
-};
+// var extractCheckItemDeletedDetails = function (url) {
+// 	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)\/checklist\/([a-zA-Z0-9]*)\/checkItem\/([a-zA-Z0-9]*)/gm;
+// 	var matches = pattern.exec(url);
+// 	return {
+// 		cardId: matches[1],
+// 		checklistId: matches[2],
+// 		checkItemId: matches[3]
+// 	};
+// };
 
-var extractSubcardDetails = function (url) {
-	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)/gm;
-	var matches = pattern.exec(url);
-	return {
-		cardId: matches[1],
-	};
-};
+// var extractSubcardDetails = function (url) {
+// 	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)/gm;
+// 	var matches = pattern.exec(url);
+// 	return {
+// 		cardId: matches[1],
+// 	};
+// };
 
 
 
-var isCardOpenedRequest = function (request) {
-	var pattern = /https:\/\/trello.com\/1\/boards\/([a-zA-Z0-9]*)\/cards\/([a-zA-Z0-9]*)/gm;
-	return pattern.test(request.url) && request.method == "GET";
-};
+// var isCardOpenedRequest = function (request) {
+// 	var pattern = /https:\/\/trello.com\/1\/boards\/([a-zA-Z0-9]*)\/cards\/([a-zA-Z0-9]*)/gm;
+// 	return pattern.test(request.url) && request.method == "GET";
+// };
 
 // Checkitem CRUD (two-way mirrorring pt I)
-var isCheckItemCreatedRequest = function (request) {
-	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)\/checklist\/([a-zA-Z0-9]*)\/checkItem/gm;
-	return pattern.test(request.url) && request.method == "POST";
+// var isCheckItemCreatedRequest = function (request) {
+// 	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)\/checklist\/([a-zA-Z0-9]*)\/checkItem/gm;
+// 	return pattern.test(request.url) && request.method == "POST";
 
-};
+// };
 
-var isCheckItemUpdatedRequest = function (request) {
-	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)\/checklist\/([a-zA-Z0-9]*)\/checkItem\/([a-zA-Z0-9]*)/gm;
-	return pattern.test(request.url) && request.method == "PUT";
-};
+// var isCheckItemUpdatedRequest = function (request) {
+// 	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)\/checklist\/([a-zA-Z0-9]*)\/checkItem\/([a-zA-Z0-9]*)/gm;
+// 	return pattern.test(request.url) && request.method == "PUT";
+// };
 
-var isCheckItemDeletedRequest = function (request) {
-	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)\/checklist\/([a-zA-Z0-9]*)\/checkItem\/([a-zA-Z0-9]*)/gm;
-	return pattern.test(request.url) && request.method == "DELETE";
-};
+// var isCheckItemDeletedRequest = function (request) {
+// 	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)\/checklist\/([a-zA-Z0-9]*)\/checkItem\/([a-zA-Z0-9]*)/gm;
+// 	return pattern.test(request.url) && request.method == "DELETE";
+// };
 
 // TODO: mark checkitem as done
 
 // Subcard CRUD (two-way mirrorring pt II)
 //   - card creation ?!?!?
 //   - card deletion (have to handle update to CLOSED == archived card)
-var isCardUpdatedRequest = function (request) {
-	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)/gm;
-	return pattern.test(request.url) && request.method == "PUT";
-};
+// var isCardUpdatedRequest = function (request) {
+// 	var pattern = /https:\/\/trello.com\/1\/cards\/([a-zA-Z0-9]*)/gm;
+// 	return pattern.test(request.url) && request.method == "PUT";
+// };
 
 // TODO: checklist deletion -> subboard deletion
 // TODO: subboard deletion -> checklist deletion

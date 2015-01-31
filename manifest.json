@@ -1,6 +1,6 @@
 {
     "manifest_version": 2,
-    "name": "TrelloFun",
+    "name": "CardBoard - for Trello",
     "description": "This extension for trello",
     "version": "1.0",
     "permissions": [
